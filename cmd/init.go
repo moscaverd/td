@@ -11,6 +11,7 @@ import (
 	"github.com/marcus/td/internal/db"
 	"github.com/marcus/td/internal/git"
 	"github.com/marcus/td/internal/output"
+	"github.com/marcus/td/internal/registry"
 	"github.com/marcus/td/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,8 @@ var initCmd = &cobra.Command{
 
 		// Check if already initialized
 		if _, err := os.Stat(filepath.Join(baseDir, ".todos")); err == nil {
+			// Still register in case it was initialized before the registry existed
+			registry.Register(baseDir)
 			output.Warning(".todos/ already exists")
 			return nil
 		}
@@ -39,6 +42,13 @@ var initCmd = &cobra.Command{
 
 		todosPath := filepath.Join(baseDir, ".todos")
 		fmt.Printf("INITIALIZED %s\n", todosPath)
+
+		// Register in global project registry
+		if added, err := registry.Register(baseDir); err != nil {
+			output.Warning("failed to register project: %v", err)
+		} else if added {
+			output.Success("Registered in global project registry")
+		}
 
 		// Add to .gitignore if in a git repo
 		if git.IsRepo() {
