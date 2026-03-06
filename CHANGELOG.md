@@ -2,7 +2,53 @@
 
 All notable changes to td are documented in this file.
 
-## [Unreleased]
+## [v0.41.0] - 2026-03-01
+
+### Bug Fixes
+- Fix premature title truncation in task list panel: overhead calculation in `formatIssueShort` was overestimating by 3 chars due to phantom leading spaces in tag width and a hardcoded type icon width. Task titles now display 3 more characters before truncating, giving more readable output in both `td monitor` and sidecar's embedded td view (sidecar#215)
+
+## [v0.40.0] - 2026-02-27
+
+### Features
+- Add search/filter to help modal (press `/` to filter) (#25)
+- Add scroll support to form modal
+- Add `balanced_review_policy` feature flag (default on)
+  - Allows creator-only approvals when a different session implemented the issue
+  - Requires `--reason` for creator-exception approvals and logs them to security audit
+  - Keeps implementer/self-approval blocked for non-minor issues
+
+### Improvements
+- Align `reviewable`/`in-review`/`status` reviewability hints with actual policy check
+
+### Documentation
+- Document balanced review policy in core workflow and references
+
+## [v0.39.0] - 2026-02-26
+
+### Features
+- `td serve`: HTTP API server for programmatic access to td projects
+  - Full CRUD for issues, comments, dependencies, boards, and focus
+  - Status transition endpoints (start, review, approve, reject, close, reopen)
+  - SSE event stream for real-time updates
+  - Port file management and session bootstrap
+  - Response envelope, DTOs, and validation helpers
+
+### Fixes
+- Support full agent file family (GEMINI.md, CLAUDE.local.md, etc) (#49)
+- `td reject` resets issues to open instead of in_progress (#45, #47)
+- Normalize action_log timestamp writes to RFC3339Nano UTC (#43)
+- Exclude tasks with open dependencies from ready/next (#34)
+- Prevent dependency divergence from phantom deletes and double normalization
+
+### Documentation
+- HTTP API documentation for `td serve`
+- Improved sync setup guides based on user feedback (#39)
+- Mention 100 character limit in title flag help text
+
+## [v0.38.0] - 2026-02-19
+
+### Fixes
+- Fix approveIssue action in board/swimlanes view (#35)
 
 ## [v0.35.0] - 2026-02-14
 

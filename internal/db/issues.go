@@ -11,35 +11,37 @@ import (
 
 // ListIssuesOptions contains filter options for listing issues
 type ListIssuesOptions struct {
-	Status         []models.Status
-	Type           []models.Type
-	Priority       string
-	Labels         []string
-	IncludeDeleted bool
-	OnlyDeleted    bool
-	Search         string
-	Implementer    string
-	Reviewer       string
-	ReviewableBy   string // Issues that this session can review
-	ParentID       string
-	EpicID         string // Filter by epic (parent_id matches epic, recursively)
-	PointsMin      int
-	PointsMax      int
-	CreatedAfter   time.Time
-	CreatedBefore  time.Time
-	UpdatedAfter   time.Time
-	UpdatedBefore  time.Time
-	ClosedAfter    time.Time
-	ClosedBefore   time.Time
-	SortBy          string
-	SortDesc        bool
-	Limit           int
-	IDs             []string
-	ExcludeDeferred bool // Hide issues where defer_until > today
-	DeferredOnly    bool // Show ONLY deferred issues (defer_until > today)
-	OverdueOnly     bool // Show ONLY overdue issues (due_date < today, not closed)
-	SurfacingOnly   bool // Show ONLY surfacing issues (defer_until <= today, defer_count > 0)
-	DueSoonDays     int  // Show issues due within N days (0 = disabled)
+	Status               []models.Status
+	Type                 []models.Type
+	Priority             string
+	Labels               []string
+	IncludeDeleted       bool
+	OnlyDeleted          bool
+	Search               string
+	Implementer          string
+	Reviewer             string
+	ReviewableBy         string // Issues that this session can review
+	BalancedReviewPolicy bool   // Allow creator-only approvals/reviews when externally implemented
+	ParentID             string
+	EpicID               string // Filter by epic (parent_id matches epic, recursively)
+	PointsMin            int
+	PointsMax            int
+	CreatedAfter         time.Time
+	CreatedBefore        time.Time
+	UpdatedAfter         time.Time
+	UpdatedBefore        time.Time
+	ClosedAfter          time.Time
+	ClosedBefore         time.Time
+	SortBy               string
+	SortDesc             bool
+	Limit                int
+	IDs                  []string
+	ExcludeDeferred      bool // Hide issues where defer_until > today
+	DeferredOnly         bool // Show ONLY deferred issues (defer_until > today)
+	OverdueOnly          bool // Show ONLY overdue issues (due_date < today, not closed)
+	SurfacingOnly        bool // Show ONLY surfacing issues (defer_until <= today, defer_count > 0)
+	DueSoonDays          int  // Show issues due within N days (0 = disabled)
+	ExcludeHasOpenDeps   bool // Hide issues that have unresolved (non-closed) dependencies
 }
 
 // CreateIssue creates a new issue WITHOUT logging to action_log.
@@ -338,6 +340,54 @@ func (db *DB) RestoreIssue(id string) error {
 	})
 }
 
+// ReviewableByFilter returns the SQL fragment and args for the ReviewableBy filter.
+// It is exported so that other packages (e.g. internal/api) can reuse the same policy logic.
+func ReviewableByFilter(sessionID string, balanced bool) (string, []interface{}) {
+	if balanced {
+		sql := ` AND status = ? AND implementer_session != '' AND (
+			minor = 1 OR (
+				implementer_session != ?
+				AND (
+					(
+						(creator_session = '' OR creator_session != ?)
+						AND NOT EXISTS (
+							SELECT 1 FROM issue_session_history
+							WHERE issue_id = issues.id AND session_id = ?
+						)
+					)
+					OR
+					(
+						creator_session = ?
+						AND implementer_session != ?
+						AND NOT EXISTS (
+							SELECT 1 FROM issue_session_history
+							WHERE issue_id = issues.id
+							  AND session_id = ?
+							  AND action IN ('started', 'unstarted')
+						)
+					)
+				)
+			)
+		)`
+		return sql, []interface{}{
+			models.StatusInReview,
+			sessionID, sessionID, sessionID,
+			sessionID, sessionID, sessionID,
+		}
+	}
+	sql := ` AND status = ? AND implementer_session != '' AND (
+		minor = 1 OR (
+			implementer_session != ?
+			AND (creator_session = '' OR creator_session != ?)
+			AND NOT EXISTS (
+				SELECT 1 FROM issue_session_history
+				WHERE issue_id = issues.id AND session_id = ?
+			)
+		)
+	)`
+	return sql, []interface{}{models.StatusInReview, sessionID, sessionID, sessionID}
+}
+
 // ListIssues returns issues matching the filter
 func (db *DB) ListIssues(opts ListIssuesOptions) ([]models.Issue, error) {
 	query := `SELECT id, title, description, status, type, priority, points, labels, parent_id, acceptance, sprint,
@@ -429,19 +479,13 @@ func (db *DB) ListIssues(opts ListIssuesOptions) ([]models.Issue, error) {
 	// Reviewable by (issues that can be reviewed by this session)
 	// Must be in_review with implementer, and either:
 	// - Minor task (always self-reviewable), OR
-	// - Session is not implementer, not creator, and not in session history
+	// - Strict mode: session is not implementer, not creator, and not in session history
+	// - Balanced mode: strict mode OR creator-only exception
+	//   (creator can review if someone else implemented and creator never started/unstarted it)
 	if opts.ReviewableBy != "" {
-		query += ` AND status = ? AND implementer_session != '' AND (
-			minor = 1 OR (
-				implementer_session != ?
-				AND (creator_session = '' OR creator_session != ?)
-				AND NOT EXISTS (
-					SELECT 1 FROM issue_session_history
-					WHERE issue_id = issues.id AND session_id = ?
-				)
-			)
-		)`
-		args = append(args, models.StatusInReview, opts.ReviewableBy, opts.ReviewableBy, opts.ReviewableBy)
+		fragment, fargs := ReviewableByFilter(opts.ReviewableBy, opts.BalancedReviewPolicy)
+		query += fragment
+		args = append(args, fargs...)
 	}
 
 	// Parent filter
@@ -517,6 +561,18 @@ func (db *DB) ListIssues(opts ListIssuesOptions) ([]models.Issue, error) {
 		query += fmt.Sprintf(" AND due_date IS NOT NULL AND due_date >= date('now') AND due_date <= date('now', '+%d days')", opts.DueSoonDays)
 	} else if opts.ExcludeDeferred {
 		query += " AND (defer_until IS NULL OR defer_until <= date('now'))"
+	}
+
+	// Exclude issues with open (non-closed) dependencies
+	if opts.ExcludeHasOpenDeps {
+		query += ` AND NOT EXISTS (
+			SELECT 1 FROM issue_dependencies d
+			JOIN issues dep ON d.depends_on_id = dep.id
+			WHERE d.issue_id = issues.id
+			  AND d.relation_type = 'depends_on'
+			  AND dep.status != 'closed'
+			  AND dep.deleted_at IS NULL
+		)`
 	}
 
 	// Sorting - validate column name to prevent SQL injection

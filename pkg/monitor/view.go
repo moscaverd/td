@@ -1708,17 +1708,80 @@ func (m Model) renderFormModal() string {
 	inner := lipgloss.JoinVertical(lipgloss.Left, formView, "", buttons, "", footer)
 
 	// Dynamic modal height: content-sized, capped at terminal height.
+	// Account for border (2) and vertical padding (2 top + 2 bottom from Padding(1,2)).
 	maxHeight := m.Height - 2
+	// Available lines inside the modal box (inside border + padding)
+	availableLines := maxHeight - 4 // 2 border + 2 padding rows
+	if availableLines < 5 {
+		availableLines = 5
+	}
+
+	// Apply scroll windowing when content overflows.
+	allLines := strings.Split(inner, "\n")
+	totalLines := len(allLines)
+	scrollOffset := m.FormScrollOffset
+	scrolled := totalLines > availableLines
+
+	var visibleInner string
+	if scrolled {
+		// Clamp scroll offset
+		maxScroll := totalLines - availableLines
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if scrollOffset > maxScroll {
+			scrollOffset = maxScroll
+		}
+		if scrollOffset < 0 {
+			scrollOffset = 0
+		}
+
+		// Slice visible window (reserve 1 line for scroll indicators)
+		indicatorLines := 1
+		viewLines := availableLines - indicatorLines
+		if viewLines < 1 {
+			viewLines = 1
+		}
+		end := scrollOffset + viewLines
+		if end > totalLines {
+			end = totalLines
+		}
+		visible := allLines[scrollOffset:end]
+
+		// Build scroll indicator line
+		var indicator string
+		canScrollUp := scrollOffset > 0
+		canScrollDown := end < totalLines
+		upArrow := subtleStyle.Render("▲")
+		downArrow := subtleStyle.Render("▼")
+		switch {
+		case canScrollUp && canScrollDown:
+			indicator = upArrow + subtleStyle.Render(" scroll ") + downArrow
+		case canScrollUp:
+			indicator = upArrow + subtleStyle.Render(" top visible — PgUp/Shift+Tab to scroll")
+		default:
+			indicator = downArrow + subtleStyle.Render(" more below — PgDn/Tab to scroll")
+		}
+
+		visibleInner = strings.Join(visible, "\n") + "\n" + indicator
+	} else {
+		visibleInner = inner
+	}
 
 	// Use custom renderer if provided (for embedded mode with custom theming)
 	if m.ModalRenderer != nil {
 		// Add vertical padding to match lipgloss Padding(1, 2) behavior.
 		// Custom renderer only handles horizontal padding, so we add blank lines
 		// for top/bottom padding manually.
-		paddedInner := "\n" + inner + "\n"
-		renderedHeight := lipgloss.Height(paddedInner) + 2 // +2 for borders
-		if renderedHeight > maxHeight {
+		paddedInner := "\n" + visibleInner + "\n"
+		var renderedHeight int
+		if scrolled {
 			renderedHeight = maxHeight
+		} else {
+			renderedHeight = lipgloss.Height(paddedInner) + 2 // +2 for borders
+			if renderedHeight > maxHeight {
+				renderedHeight = maxHeight
+			}
 		}
 		// Add 2 to width: renderer expects outer dimensions with borders
 		return m.ModalRenderer(paddedInner, modalWidth+2, renderedHeight, ModalTypeForm, 1)
@@ -1728,11 +1791,16 @@ func (m Model) renderFormModal() string {
 	// Select border color - cyan for forms (different from issue modals)
 	borderColor := lipgloss.Color("45") // Cyan
 
-	// Measure actual content height and cap at terminal bounds
-	contentHeight := lipgloss.Height(inner)
-	actualHeight := contentHeight + 2 // +2 for Padding(1, 2) vertical
-	if actualHeight > maxHeight {
+	var actualHeight int
+	if scrolled {
 		actualHeight = maxHeight
+	} else {
+		// Measure actual content height and cap at terminal bounds
+		contentHeight := lipgloss.Height(visibleInner)
+		actualHeight = contentHeight + 2 // +2 for Padding(1, 2) vertical
+		if actualHeight > maxHeight {
+			actualHeight = maxHeight
+		}
 	}
 
 	modalStyle := lipgloss.NewStyle().
@@ -1742,7 +1810,7 @@ func (m Model) renderFormModal() string {
 		Width(modalWidth).
 		Height(actualHeight)
 
-	return modalStyle.Render(inner)
+	return modalStyle.Render(visibleInner)
 }
 
 // renderStatusBarChart renders a horizontal bar chart for status breakdown
@@ -2244,9 +2312,25 @@ func (m Model) renderHelp() string {
 	helpText := m.Keymap.GenerateHelp()
 	allLines := strings.Split(helpText, "\n")
 
+	// Filter lines if filter is active
+	var displayLines []string
+	if m.HelpFilter != "" {
+		filterLower := strings.ToLower(m.HelpFilter)
+		for _, line := range allLines {
+			if strings.Contains(strings.ToLower(line), filterLower) {
+				displayLines = append(displayLines, line)
+			}
+		}
+	} else {
+		displayLines = allLines
+	}
+
 	// Calculate visible area
 	visibleHeight := modalHeight - 4 // Account for border and footer
-	totalLines := len(allLines)
+	if m.HelpFilterMode || m.HelpFilter != "" {
+		visibleHeight-- // Account for filter input line
+	}
+	totalLines := len(displayLines)
 	scroll := m.HelpScroll
 
 	// Clamp scroll
@@ -2264,6 +2348,18 @@ func (m Model) renderHelp() string {
 	// Build visible content
 	var content strings.Builder
 
+	// Show filter input if filtering
+	if m.HelpFilterMode {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+		content.WriteString(filterStyle.Render("/ " + m.HelpFilter + "█"))
+		content.WriteString("\n")
+	} else if m.HelpFilter != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+		matchInfo := subtleStyle.Render(fmt.Sprintf(" (%d matches)", totalLines))
+		content.WriteString(filterStyle.Render("/ "+m.HelpFilter) + matchInfo)
+		content.WriteString("\n")
+	}
+
 	// Show up indicator if scrolled down
 	if scroll > 0 {
 		content.WriteString(subtleStyle.Render(fmt.Sprintf("  ▲ %d more above\n", scroll)))
@@ -2277,7 +2373,7 @@ func (m Model) renderHelp() string {
 	}
 	if scroll < totalLines {
 		for i := scroll; i < endIdx; i++ {
-			content.WriteString(allLines[i])
+			content.WriteString(displayLines[i])
 			if i < endIdx-1 {
 				content.WriteString("\n")
 			}
@@ -2297,7 +2393,11 @@ func (m Model) renderHelp() string {
 		scrollInfo := subtleStyle.Render(fmt.Sprintf("─ %d/%d ─", scroll+1, totalLines))
 		footerParts = append(footerParts, scrollInfo)
 	}
-	footerParts = append(footerParts, subtleStyle.Render("j/k:scroll  Ctrl+d/u:½page  G/gg:end/start  ?/Esc:close"))
+	if m.HelpFilter != "" {
+		footerParts = append(footerParts, subtleStyle.Render("Esc:clear  j/k:scroll  ?:close"))
+	} else {
+		footerParts = append(footerParts, subtleStyle.Render("/:filter  j/k:scroll  Ctrl+d/u:½page  G/gg:end/start  ?/Esc:close"))
+	}
 	footer := strings.Join(footerParts, "  ")
 
 	// Combine content and footer
@@ -2455,9 +2555,18 @@ func (m Model) formatIssueShort(issue *models.Issue) string {
 	idStr := subtleStyle.Render(issue.ID)
 	priorityStr := formatPriority(issue.Priority)
 
-	// Calculate available width for title:
-	// m.Width - 4 (panel border) - 8 (row prefix "  [TAG] ") - typeIcon - ID - priority - 3 spaces
-	overhead := 4 + 8 + 2 + lipgloss.Width(idStr) + lipgloss.Width(priorityStr) + 3
+	// Calculate available width for title.
+	// Line format (in callers): fmt.Sprintf("%s %s", tag, issueStr)
+	//   where issueStr = fmt.Sprintf("%s %s %s %s", typeIcon, idStr, priorityStr, title)
+	// Overhead:
+	//   4             = panel border + padding (wrapPanel uses m.Width - 4 for content)
+	//   5             = category tag visual width (all tags are 5 chars: [RDY], [BLK], etc.)
+	//   1             = space between tag and issueStr (outer format "%s %s")
+	//   typeIconWidth = actual width of the type icon character (varies by terminal)
+	//   idWidth       = visual width of styled issue ID
+	//   priorityWidth = visual width of styled priority
+	//   3             = three spaces in issueStr format (after typeIcon, after id, after priority)
+	overhead := 4 + 5 + 1 + lipgloss.Width(typeIcon) + lipgloss.Width(idStr) + lipgloss.Width(priorityStr) + 3
 	titleWidth := m.Width - overhead
 	if titleWidth < 20 {
 		titleWidth = 20 // minimum reasonable width

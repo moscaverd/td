@@ -425,6 +425,22 @@ func (db *DB) GetAllDependencies() (map[string][]string, error) {
 	return deps, nil
 }
 
+// GetDependencyByDepID retrieves a single dependency row by its deterministic dep_id.
+func (db *DB) GetDependencyByDepID(depID string) (*models.IssueDependency, error) {
+	var dep models.IssueDependency
+	err := db.conn.QueryRow(`
+		SELECT issue_id, depends_on_id, relation_type
+		FROM issue_dependencies WHERE id = ?
+	`, depID).Scan(&dep.IssueID, &dep.DependsOnID, &dep.RelationType)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dep, nil
+}
+
 // GetIssuesWithOpenDeps returns a set of issue IDs that have at least one open (non-closed) dependency.
 // This is used by the is_ready() and has_open_deps() query functions.
 func (db *DB) GetIssuesWithOpenDeps() (map[string]bool, error) {
@@ -574,6 +590,20 @@ func (db *DB) WasSessionInvolved(issueID, sessionID string) (bool, error) {
 		SELECT COUNT(*) FROM issue_session_history
 		WHERE issue_id = ? AND session_id = ?
 	`, issueID, sessionID).Scan(&count)
+	return count > 0, err
+}
+
+// WasSessionImplementationInvolved checks if a session ever touched implementation
+// flow for an issue (start/unstart). This is used for balanced review policy:
+// creator-only approvals are allowed only when creator never implemented.
+func (db *DB) WasSessionImplementationInvolved(issueID, sessionID string) (bool, error) {
+	issueID = NormalizeIssueID(issueID)
+	var count int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*) FROM issue_session_history
+		WHERE issue_id = ? AND session_id = ?
+		  AND action IN (?, ?)
+	`, issueID, sessionID, models.ActionSessionStarted, models.ActionSessionUnstarted).Scan(&count)
 	return count > 0, err
 }
 

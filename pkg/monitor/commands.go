@@ -157,6 +157,12 @@ func (m Model) handleFormUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.FormState.ButtonFocus = focus
 				m.FormState.ButtonHover = 0
+				// Auto-scroll: buttons at bottom need scroll down; returning to fields scrolls to focused field
+				if focus == formButtonFocusSubmit || focus == formButtonFocusCancel {
+					m.FormScrollOffset = m.formScrollToBottom()
+				} else if focus == formButtonFocusForm {
+					m.FormScrollOffset = m.formScrollForFocusedField()
+				}
 				return m, nil
 			}
 
@@ -236,6 +242,39 @@ func (m Model) handleFormUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.FormState.Form.WithWidth(formWidth)
 	}
 
+	// Handle PgUp/PgDn scroll for form overflow (before huh processes)
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.Type {
+		case tea.KeyPgUp:
+			maxHeight := m.Height - 2
+			availableLines := maxHeight - 4
+			if availableLines < 5 {
+				availableLines = 5
+			}
+			step := availableLines / 2
+			if step < 1 {
+				step = 1
+			}
+			m.FormScrollOffset -= step
+			if m.FormScrollOffset < 0 {
+				m.FormScrollOffset = 0
+			}
+			return m, nil
+		case tea.KeyPgDown:
+			maxHeight := m.Height - 2
+			availableLines := maxHeight - 4
+			if availableLines < 5 {
+				availableLines = 5
+			}
+			step := availableLines / 2
+			if step < 1 {
+				step = 1
+			}
+			m.FormScrollOffset += step
+			return m, nil
+		}
+	}
+
 	// Forward message to huh form
 	form, cmd := m.FormState.Form.Update(msg)
 	if f, ok := form.(*huh.Form); ok {
@@ -244,6 +283,13 @@ func (m Model) handleFormUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Sync autofill state after huh processes the message (detects field focus changes)
 	m.syncAutofillState()
+
+	// Auto-scroll to keep the focused field visible after Tab/Shift+Tab
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if keyMsg.Type == tea.KeyTab || keyMsg.Type == tea.KeyShiftTab {
+			m.FormScrollOffset = m.formScrollForFocusedField()
+		}
+	}
 
 	// Check if form completed (user pressed enter on last field)
 	if m.FormState.Form.State == huh.StateCompleted {
@@ -303,6 +349,48 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		// Fall through to keymap for esc, etc.
+	}
+
+	// Help modal filter mode: handle typing when filtering
+	if m.HelpOpen && m.HelpFilterMode {
+		switch msg.Type {
+		case tea.KeyEsc:
+			// Clear filter and exit filter mode
+			m.HelpFilter = ""
+			m.HelpFilterMode = false
+			m.HelpScroll = 0
+			return m, nil
+		case tea.KeyEnter:
+			// Confirm filter and exit filter mode (keep filter active)
+			m.HelpFilterMode = false
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.HelpFilter) > 0 {
+				m.HelpFilter = m.HelpFilter[:len(m.HelpFilter)-1]
+				m.HelpScroll = 0
+			}
+			return m, nil
+		case tea.KeyRunes:
+			m.HelpFilter += string(msg.Runes)
+			m.HelpScroll = 0
+			return m, nil
+		}
+		// Fall through to keymap for other keys
+	}
+
+	// Help modal: "/" enters filter mode, Esc clears filter first
+	if m.HelpOpen && !m.HelpFilterMode {
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '/' {
+			m.HelpFilterMode = true
+			m.HelpFilter = ""
+			return m, nil
+		}
+		// Esc clears filter if active, otherwise falls through to close help
+		if msg.Type == tea.KeyEsc && m.HelpFilter != "" {
+			m.HelpFilter = ""
+			m.HelpScroll = 0
+			return m, nil
+		}
 	}
 
 	// Stats modal: let declarative modal handle keys first (when data is ready)
@@ -521,8 +609,14 @@ func (m Model) executeCommand(cmd keymap.Command) (tea.Model, tea.Cmd) {
 			if m.HelpOpen {
 				// Initialize scroll position and calculate total lines
 				m.HelpScroll = 0
+				m.HelpFilter = ""
+				m.HelpFilterMode = false
 				helpText := m.Keymap.GenerateHelp()
 				m.HelpTotalLines = strings.Count(helpText, "\n") + 1
+			} else {
+				// Clear filter when closing
+				m.HelpFilter = ""
+				m.HelpFilterMode = false
 			}
 		}
 		return m, nil
@@ -2202,10 +2296,7 @@ func (m Model) doInstallInstructions() tea.Cmd {
 func (m Model) checkFirstRun() tea.Cmd {
 	return func() tea.Msg {
 		agentPath := agent.DetectAgentFile(m.BaseDir)
-		hasTD := false
-		if agentPath != "" {
-			hasTD = agent.HasTDInstructions(agentPath)
-		}
+		hasTD := agent.AnyFileHasTDInstructions(m.BaseDir)
 
 		return FirstRunCheckMsg{
 			IsFirstRun:      !hasTD, // Show modal if no instructions found

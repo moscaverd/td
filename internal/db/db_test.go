@@ -930,6 +930,18 @@ func TestReviewableByFilter(t *testing.T) {
 	}
 	createIssue(issue5)
 
+	// Issue 6: Creator-only candidate but creator also touched implementation history
+	issue6 := &models.Issue{
+		Title:              "Creator touched implementation history",
+		Status:             models.StatusInReview,
+		ImplementerSession: sessionB,
+		CreatorSession:     sessionA,
+	}
+	createIssue(issue6)
+	if err := db.RecordSessionAction(issue6.ID, sessionA, models.ActionSessionStarted); err != nil {
+		t.Fatalf("RecordSessionAction failed: %v", err)
+	}
+
 	// Test: Session A can only review issue4 (minor) and issue5 (clean)
 	t.Run("session A reviewable", func(t *testing.T) {
 		reviewable, err := db.ListIssues(ListIssuesOptions{ReviewableBy: sessionA})
@@ -960,9 +972,51 @@ func TestReviewableByFilter(t *testing.T) {
 		if ids[issue3.ID] {
 			t.Errorf("Session A should NOT be able to review %s (in session history)", issue3.ID)
 		}
+		if ids[issue6.ID] {
+			t.Errorf("Session A should NOT be able to review %s (creator touched implementation history)", issue6.ID)
+		}
 
 		if len(reviewable) != 2 {
 			t.Errorf("Expected 2 reviewable issues for A, got %d", len(reviewable))
+		}
+	})
+
+	t.Run("session A reviewable balanced policy", func(t *testing.T) {
+		reviewable, err := db.ListIssues(ListIssuesOptions{
+			ReviewableBy:         sessionA,
+			BalancedReviewPolicy: true,
+		})
+		if err != nil {
+			t.Fatalf("ListIssues failed: %v", err)
+		}
+
+		ids := make(map[string]bool)
+		for _, issue := range reviewable {
+			ids[issue.ID] = true
+		}
+
+		if !ids[issue2.ID] {
+			t.Errorf("Session A should be able to review %s under balanced policy (creator-only exception)", issue2.ID)
+		}
+		if !ids[issue4.ID] {
+			t.Errorf("Session A should be able to review %s under balanced policy", issue4.ID)
+		}
+		if !ids[issue5.ID] {
+			t.Errorf("Session A should be able to review %s under balanced policy", issue5.ID)
+		}
+
+		if ids[issue1.ID] {
+			t.Errorf("Session A should NOT be able to review %s (implementer)", issue1.ID)
+		}
+		if ids[issue3.ID] {
+			t.Errorf("Session A should NOT be able to review %s (history involvement)", issue3.ID)
+		}
+		if ids[issue6.ID] {
+			t.Errorf("Session A should NOT be able to review %s (creator touched implementation history)", issue6.ID)
+		}
+
+		if len(reviewable) != 3 {
+			t.Errorf("Expected 3 reviewable issues for A under balanced policy, got %d", len(reviewable))
 		}
 	})
 
@@ -1037,17 +1091,19 @@ func TestGetRejectedInProgressIssueIDs(t *testing.T) {
 	defer db.Close()
 
 	// Create test issues
-	issue1 := &models.Issue{Title: "Issue 1", Status: models.StatusInProgress}
-	issue2 := &models.Issue{Title: "Issue 2", Status: models.StatusInProgress}
-	issue3 := &models.Issue{Title: "Issue 3", Status: models.StatusInProgress}
-	issue4 := &models.Issue{Title: "Issue 4", Status: models.StatusOpen} // Not in_progress
+	issue1 := &models.Issue{Title: "Issue 1 (rejected, open)", Status: models.StatusOpen}
+	issue2 := &models.Issue{Title: "Issue 2 (rejected, re-submitted)", Status: models.StatusInProgress}
+	issue3 := &models.Issue{Title: "Issue 3 (never rejected)", Status: models.StatusInProgress}
+	issue4 := &models.Issue{Title: "Issue 4 (rejected, closed)", Status: models.StatusClosed}
+	issue5 := &models.Issue{Title: "Issue 5 (rejected, picked up)", Status: models.StatusInProgress}
 
 	db.CreateIssue(issue1)
 	db.CreateIssue(issue2)
 	db.CreateIssue(issue3)
 	db.CreateIssue(issue4)
+	db.CreateIssue(issue5)
 
-	// issue1: rejected, no subsequent review (should be detected)
+	// issue1: rejected, now open, no subsequent review (should be detected)
 	db.LogAction(&models.ActionLog{
 		SessionID:  "ses_reviewer",
 		ActionType: models.ActionReject,
@@ -1070,12 +1126,20 @@ func TestGetRejectedInProgressIssueIDs(t *testing.T) {
 	})
 
 	// issue3: never rejected (should NOT be detected)
-	// issue4: rejected but not in_progress status (should NOT be detected)
+	// issue4: rejected but closed status (should NOT be detected)
 	db.LogAction(&models.ActionLog{
 		SessionID:  "ses_reviewer",
 		ActionType: models.ActionReject,
 		EntityType: "issue",
 		EntityID:   issue4.ID,
+	})
+
+	// issue5: rejected, then picked up again (in_progress), should be detected
+	db.LogAction(&models.ActionLog{
+		SessionID:  "ses_reviewer",
+		ActionType: models.ActionReject,
+		EntityType: "issue",
+		EntityID:   issue5.ID,
 	})
 
 	// Get rejected IDs
@@ -1084,9 +1148,9 @@ func TestGetRejectedInProgressIssueIDs(t *testing.T) {
 		t.Fatalf("GetRejectedInProgressIssueIDs failed: %v", err)
 	}
 
-	// Only issue1 should be detected
+	// issue1 (open, rejected) should be detected
 	if !rejectedIDs[issue1.ID] {
-		t.Errorf("issue1 should be detected as rejected in_progress")
+		t.Errorf("issue1 should be detected as rejected open issue")
 	}
 	if rejectedIDs[issue2.ID] {
 		t.Errorf("issue2 should NOT be detected (was re-submitted)")
@@ -1095,7 +1159,11 @@ func TestGetRejectedInProgressIssueIDs(t *testing.T) {
 		t.Errorf("issue3 should NOT be detected (never rejected)")
 	}
 	if rejectedIDs[issue4.ID] {
-		t.Errorf("issue4 should NOT be detected (not in_progress status)")
+		t.Errorf("issue4 should NOT be detected (closed status)")
+	}
+	// issue5 (in_progress, rejected) should also be detected
+	if !rejectedIDs[issue5.ID] {
+		t.Errorf("issue5 should be detected as rejected in_progress issue")
 	}
 }
 
@@ -1559,6 +1627,50 @@ func TestApplyBoardPositions_Ordering(t *testing.T) {
 	}
 	if result[3].Issue.ID != issue3.ID {
 		t.Errorf("result[3] = %s, want %s (unpositioned, original order)", result[3].Issue.ID, issue3.ID)
+	}
+}
+
+func TestApplyBoardPositions_LegacyNonCanonicalPositionIDs(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Initialize(dir)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	defer db.Close()
+
+	board, _ := db.CreateBoard("Legacy Position IDs", "")
+	issue1 := &models.Issue{Title: "Issue 1", Type: models.TypeTask, Priority: models.PriorityP2}
+	issue2 := &models.Issue{Title: "Issue 2", Type: models.TypeTask, Priority: models.PriorityP2}
+	db.CreateIssue(issue1)
+	db.CreateIssue(issue2)
+
+	legacyIssue2ID := issue2.ID
+	if len(issue2.ID) > 3 && issue2.ID[:3] == "td-" {
+		legacyIssue2ID = issue2.ID[3:]
+	}
+
+	legacyPosID := BoardIssuePosID(board.ID, legacyIssue2ID)
+	if _, err := db.conn.Exec(`
+		INSERT INTO board_issue_positions (id, board_id, issue_id, position, added_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, legacyPosID, board.ID, legacyIssue2ID, 1); err != nil {
+		t.Fatalf("insert legacy board position failed: %v", err)
+	}
+
+	issues := []models.Issue{*issue1, *issue2}
+	result, err := db.ApplyBoardPositions(board.ID, issues)
+	if err != nil {
+		t.Fatalf("ApplyBoardPositions failed: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(result))
+	}
+
+	if result[0].Issue.ID != issue2.ID {
+		t.Fatalf("result[0].Issue.ID = %s, want %s", result[0].Issue.ID, issue2.ID)
+	}
+	if !result[0].HasPosition || result[0].Position != 1 {
+		t.Fatalf("legacy-positioned issue should have position 1, got has_position=%v position=%d", result[0].HasPosition, result[0].Position)
 	}
 }
 
