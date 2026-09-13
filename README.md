@@ -551,3 +551,8 @@ Inspired by [beads](https://github.com/steveyegge/beads) by Steve Yegge.
 ## License
 
 MIT
+
+
+### Separate configuration profiles
+
+Set `TD_CONFIG_DIR` to an absolute directory to isolate sync configuration, credentials, directory associations and the global project registry. Without this override, these files remain in `~/.config/td`. Tests and the project CLI smoke use disposable directories and do not require your personal configuration.

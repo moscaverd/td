@@ -269,6 +269,7 @@ func (h *Harness) Td(actor string, args ...string) (string, error) {
 	cmd.Dir = clientDir
 	cmd.Env = append(os.Environ(),
 		"HOME="+homeDir,
+		"TD_CONFIG_DIR="+filepath.Join(homeDir, ".config", "td"),
 		"TD_SESSION_ID="+sessionID,
 		"TD_ENABLE_FEATURE=sync_cli,sync_autosync,sync_monitor_prompt",
 	)

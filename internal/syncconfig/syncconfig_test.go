@@ -67,12 +67,12 @@ func TestSnapshotThresholdEnvOverridesConfig(t *testing.T) {
 	}
 }
 
-// writeTestConfig creates a temp HOME with ~/.config/td/config.json and returns cleanup.
+// writeTestConfig creates an isolated td configuration directory.
 func writeTestConfig(t *testing.T, cfg *Config) {
 	t.Helper()
 	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
 	dir := filepath.Join(tmpDir, ".config", "td")
+	t.Setenv("TD_CONFIG_DIR", dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
