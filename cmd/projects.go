@@ -124,7 +124,12 @@ func queryIssues(dbPath string, showAll bool) ([]issueRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("path: %w", err)
 	}
-	dsn := &url.URL{Scheme: "file", Path: filepath.ToSlash(absolutePath), RawQuery: "mode=ro"}
+	uriPath := filepath.ToSlash(absolutePath)
+	if filepath.VolumeName(absolutePath) != "" && !strings.HasPrefix(uriPath, "/") {
+		// A Windows drive belongs in the URI path, not its authority.
+		uriPath = "/" + uriPath
+	}
+	dsn := &url.URL{Scheme: "file", Path: uriPath, RawQuery: "mode=ro"}
 	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
