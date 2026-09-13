@@ -95,7 +95,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/marcus/td/
 
 ### Go Install
 
-Requires Go 1.21+:
+Requires Go 1.26 or newer. Go 1.27.1 is recommended for current security fixes; CI also verifies the supported Go 1.26 patch line. The source minimum increased from the previous module requirement of Go 1.25.5 because the patched crypto/network dependencies require Go 1.26.
 
 ```bash
 go install github.com/marcus/td@latest
