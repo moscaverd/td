@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   goreleaser:
+    if: github.repository == 'marcus/td'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,6 +33,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
   update-homebrew-tap:
+    if: github.repository == 'marcus/td'
     needs: goreleaser
     runs-on: ubuntu-latest
     steps:
