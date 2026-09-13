@@ -555,4 +555,4 @@ MIT
 
 ### Separate configuration profiles
 
-Set `TD_CONFIG_DIR` to an absolute directory to isolate sync configuration, credentials, directory associations and the global project registry. Without this override, these files remain in `~/.config/td`. Tests and the project CLI smoke use disposable directories and do not require your personal configuration.
+Set `TD_CONFIG_DIR` to an absolute directory to isolate sync configuration, credentials, the version cache, directory associations and the global project registry. Without this override, these files remain in `~/.config/td`. Tests and the project CLI smoke use disposable directories and do not require your personal configuration.

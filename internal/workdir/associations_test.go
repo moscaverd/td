@@ -8,7 +8,7 @@ import (
 )
 
 func TestLoadAssociations_MissingFile(t *testing.T) {
-	// Point HOME to a temp dir so ConfigDir returns an empty config
+	// Point the td profile to a temp dir so ConfigDir returns an empty config
 	tmp := t.TempDir()
 	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 

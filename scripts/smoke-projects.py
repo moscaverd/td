@@ -22,6 +22,8 @@ with tempfile.TemporaryDirectory(prefix="td-projects-smoke-") as temporary:
         TD_FEATURE_SYNC_AUTOSYNC="0",
         TD_FEATURE_SYNC_CLI="0",
         TD_LOG_FILE=str(fixture / "fixture.log"),
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
     )
 
     def run(*arguments, cwd=project):

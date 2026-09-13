@@ -22,7 +22,20 @@ type CacheEntry struct {
 
 // cachePath returns the full path to the cache file.
 func cachePath() string {
-	home, err := os.UserHomeDir()
+	return resolveCachePath(os.Getenv("TD_CONFIG_DIR"), os.UserHomeDir)
+}
+
+// resolveCachePath keeps cache profiles independent of the process home.
+// The default lookup is injected so its error path can be tested without
+// changing HOME or accessing a real user's files.
+func resolveCachePath(configDir string, userHomeDir func() (string, error)) string {
+	if configDir != "" {
+		if !filepath.IsAbs(configDir) {
+			return ""
+		}
+		return filepath.Join(configDir, cacheFile)
+	}
+	home, err := userHomeDir()
 	if err != nil {
 		return ""
 	}
