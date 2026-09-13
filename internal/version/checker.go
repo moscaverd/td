@@ -16,6 +16,10 @@ type UpdateAvailableMsg struct {
 // CheckAsync returns a Bubble Tea command that checks for updates in background.
 func CheckAsync(currentVersion string) tea.Cmd {
 	return func() tea.Msg {
+		if IsDevelopmentVersion(currentVersion) {
+			return nil
+		}
+
 		// Check cache first
 		if cached, err := LoadCache(); err == nil && IsCacheValid(cached, currentVersion) {
 			if cached.HasUpdate {

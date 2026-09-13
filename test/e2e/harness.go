@@ -49,7 +49,7 @@ type Harness struct {
 	SyncBin string
 
 	clientDirs map[string]string // actor -> working dir
-	homeDirs   map[string]string // actor -> HOME dir
+	homeDirs   map[string]string // actor -> isolated td profile root
 	sessionIDs map[string]string // actor -> TD_SESSION_ID
 
 	serverCmd          *exec.Cmd
@@ -268,7 +268,10 @@ func (h *Harness) Td(actor string, args ...string) (string, error) {
 	cmd := exec.Command(h.TdBin, args...)
 	cmd.Dir = clientDir
 	cmd.Env = append(os.Environ(),
-		"HOME="+homeDir,
+		"TD_CONFIG_DIR="+filepath.Join(homeDir, ".config", "td"),
+		"TD_LOG_FILE="+filepath.Join(homeDir, "td.log"),
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_NOSYSTEM=1",
 		"TD_SESSION_ID="+sessionID,
 		"TD_ENABLE_FEATURE=sync_cli,sync_autosync,sync_monitor_prompt",
 	)
@@ -346,7 +349,7 @@ func (h *Harness) ClientDir(actor string) string {
 	return h.clientDirs[actor]
 }
 
-// HomeDir returns the HOME directory for an actor.
+// HomeDir returns the isolated td profile root for an actor.
 func (h *Harness) HomeDir(actor string) string {
 	return h.homeDirs[actor]
 }

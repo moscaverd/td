@@ -115,11 +115,9 @@ func TestIsCacheValid(t *testing.T) {
 func TestSaveAndLoadCache(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	// Set HOME to temp directory so cachePath returns our test path
-	os.Setenv("HOME", tmpDir)
+	// Point only the td cache at the test profile.
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	tests := []struct {
 		name  string
@@ -191,10 +189,8 @@ func TestSaveAndLoadCache(t *testing.T) {
 
 func TestLoadCacheErrors(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	t.Run("load nonexistent cache file", func(t *testing.T) {
 		_, err := LoadCache()
@@ -222,12 +218,10 @@ func TestLoadCacheErrors(t *testing.T) {
 
 func TestSaveCacheWithMissingDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	// Set HOME to non-existent path to test directory creation
-	nonExistentHome := filepath.Join(tmpDir, "nonexistent", "nested", "path")
-	os.Setenv("HOME", nonExistentHome)
+	// Use a missing td profile to test directory creation
+	nonExistentProfile := filepath.Join(tmpDir, "nonexistent", "nested", "path")
+	t.Setenv("TD_CONFIG_DIR", nonExistentProfile)
 
 	entry := &CacheEntry{
 		LatestVersion:  "v1.0.0",
@@ -279,15 +273,12 @@ func TestCacheEntryJSON(t *testing.T) {
 	}
 }
 
-// TestCachePathEmptyHome tests cachePath behavior with empty HOME directory
+// TestCachePathEmptyHome preserves the missing-home lookup error behavior.
 func TestCachePathEmptyHome(t *testing.T) {
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	// Unset HOME to simulate environment without it
-	os.Setenv("HOME", "")
-
-	path := cachePath()
+	path := resolveCachePath("", func() (string, error) {
+		return "", os.ErrNotExist
+	})
 	if path != "" {
 		t.Errorf("cachePath() should return empty string when HOME is not set, got %q", path)
 	}
@@ -331,11 +322,9 @@ func TestIsCacheValidBoundaryConditions(t *testing.T) {
 // TestSaveCacheCreatesDirs tests that SaveCache creates necessary directories
 func TestSaveCacheCreatesDirs(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	// Set HOME to temp directory to control cache location
-	os.Setenv("HOME", tmpDir)
+	// Point only the td cache at the test profile.
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	entry := &CacheEntry{
 		LatestVersion:  "v1.0.0",
@@ -365,10 +354,8 @@ func TestSaveCacheCreatesDirs(t *testing.T) {
 // TestLoadCachePermissions tests that loaded cache data is accessible
 func TestLoadCachePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	originalEntry := &CacheEntry{
 		LatestVersion:  "v2.0.0",
@@ -442,10 +429,8 @@ func TestCacheVersionChange(t *testing.T) {
 // TestCacheEntryEdgeCases tests various edge case CacheEntry values
 func TestCacheEntryEdgeCases(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	tests := []struct {
 		name  string

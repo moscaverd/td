@@ -23,17 +23,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: npm ci
+        working-directory: website
+      - run: npm run test:security
         working-directory: website
       - run: npm run build
         working-directory: website
       - uses: actions/configure-pages@v4
+        if: github.repository == 'marcus/td'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/build
 
   deploy:
+    if: github.repository == 'marcus/td'
     needs: build
     runs-on: ubuntu-latest
     environment: github-pages

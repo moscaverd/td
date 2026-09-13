@@ -12,10 +12,8 @@ import (
 
 func TestCheckAsyncWithValidCache(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// Pre-populate cache with a valid entry
 	now := time.Now()
@@ -55,10 +53,8 @@ func TestCheckAsyncWithValidCache(t *testing.T) {
 
 func TestCheckAsyncWithExpiredCache(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// Pre-populate cache with an expired entry (7 hours old, TTL is 6 hours)
 	expiredTime := time.Now().Add(-7 * time.Hour)
@@ -74,11 +70,11 @@ func TestCheckAsyncWithExpiredCache(t *testing.T) {
 	}
 
 	// CheckAsync with expired cache should attempt to fetch from GitHub
-	// (will fail since we can't mock HTTP, but it should not use cached result)
+	// (the fixture transport fails, so it should not use the cached result)
 	cmd := CheckAsync("v1.0.0")
 	msg := cmd()
 
-	// Since the cache is expired and network call will fail (no mock),
+	// Since the cache is expired and fixture transport fails,
 	// we expect nil or an error state, not the cached message
 	if msg != nil {
 		if updateMsg, ok := msg.(UpdateAvailableMsg); ok {
@@ -92,10 +88,8 @@ func TestCheckAsyncWithExpiredCache(t *testing.T) {
 
 func TestCheckAsyncWithVersionMismatch(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// Pre-populate cache for v1.0.0
 	now := time.Now()
@@ -111,7 +105,7 @@ func TestCheckAsyncWithVersionMismatch(t *testing.T) {
 	}
 
 	// CheckAsync with different current version should invalidate cache
-	// Since cache is now invalid and network call fails (no mock),
+	// Since cache is now invalid and fixture transport fails,
 	// we expect nil or error state
 	cmd := CheckAsync("v1.1.0")
 	msg := cmd()
@@ -128,13 +122,11 @@ func TestCheckAsyncWithVersionMismatch(t *testing.T) {
 
 func TestCheckAsyncNoCacheFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// No cache file exists, CheckAsync should attempt network fetch
-	// (will fail without mocking, but that's expected)
+	// (the fixture transport returns the expected network error)
 	cmd := CheckAsync("v1.0.0")
 	msg := cmd()
 
@@ -180,10 +172,8 @@ func TestCheckAsyncWithDevelopmentVersion(t *testing.T) {
 
 func TestCheckAsyncWithInvalidCache(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	path := cachePath()
 	dir := filepath.Dir(path)
@@ -195,7 +185,7 @@ func TestCheckAsyncWithInvalidCache(t *testing.T) {
 	}
 
 	// CheckAsync should handle corrupted cache gracefully
-	// and attempt network fetch (which will fail without mocking)
+	// and attempt network fetch (which the fixture transport fails)
 	cmd := CheckAsync("v1.0.0")
 	msg := cmd()
 
@@ -207,10 +197,8 @@ func TestCheckAsyncWithInvalidCache(t *testing.T) {
 
 func TestCheckAsyncCacheSaving(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// First call should try to fetch from network (will fail)
 	// but shouldn't crash
@@ -248,10 +236,8 @@ func TestCheckAsyncCacheSaving(t *testing.T) {
 
 func TestCheckAsyncUpToDate(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("HOME", tmpDir)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmpDir, ".config", "td"))
 
 	// Cache indicates no update available
 	now := time.Now()

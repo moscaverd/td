@@ -95,7 +95,7 @@ Download pre-built binaries from [GitHub Releases](https://github.com/marcus/td/
 
 ### Go Install
 
-Requires Go 1.21+:
+Requires Go 1.26 or newer. Go 1.27.1 is recommended for current security fixes; CI also verifies the supported Go 1.26 patch line. The source minimum increased from the previous module requirement of Go 1.25.5 because the patched crypto/network dependencies require Go 1.26.
 
 ```bash
 go install github.com/marcus/td@latest
@@ -551,3 +551,8 @@ Inspired by [beads](https://github.com/steveyegge/beads) by Steve Yegge.
 ## License
 
 MIT
+
+
+### Separate configuration profiles
+
+Set `TD_CONFIG_DIR` to an absolute directory to isolate sync configuration, credentials, the version cache, directory associations and the global project registry. Without this override, these files remain in `~/.config/td`. Tests and the project CLI smoke use disposable directories and do not require your personal configuration.

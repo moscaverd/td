@@ -46,13 +46,21 @@ type AuthCredentials struct {
 
 const defaultServerURL = "http://localhost:8080"
 
-// ConfigDir returns ~/.config/td, creating it if necessary.
+// ConfigDir returns TD_CONFIG_DIR or ~/.config/td, creating it if necessary.
+// An explicit override must be absolute so it is independent of the project cwd.
 func ConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("get home dir: %w", err)
+	dir := os.Getenv("TD_CONFIG_DIR")
+	if dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("TD_CONFIG_DIR must be an absolute path")
+		}
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get home dir: %w", err)
+		}
+		dir = filepath.Join(home, ".config", "td")
 	}
-	dir := filepath.Join(home, ".config", "td")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}

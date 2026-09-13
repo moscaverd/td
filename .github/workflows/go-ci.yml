@@ -1,0 +1,84 @@
+name: Go CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go ${{ matrix.go }} tests and release smoke
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26.x', '1.27.x']
+    env:
+      GIT_AUTHOR_NAME: td CI
+      GIT_AUTHOR_EMAIL: ci@td.invalid
+      GIT_COMMITTER_NAME: td CI
+      GIT_COMMITTER_EMAIL: ci@td.invalid
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_NOSYSTEM: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build non-CGO CLI and sync server
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -o dist/td .
+          CGO_ENABLED=0 go build -trimpath -o dist/td-sync ./cmd/td-sync
+      - name: Exercise the actual CLI in disposable projects
+        run: python3 scripts/smoke-projects.py dist/td
+
+  cross-build:
+    name: Cross-build supported platforms
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.x'
+          check-latest: true
+      - name: Build release and source targets without CGO
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            echo "Building ${target}"
+            CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go build -o /dev/null ./...
+          done
+
+  windows:
+    name: Windows locking and non-CGO project smoke
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.x'
+          check-latest: true
+      - name: Exercise real Windows locks and SQLite paths
+        run: |
+          go test ./internal/config -run '^TestConfigLock' -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test ./cmd -run '^TestQueryProjects' -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and exercise the Windows CLI
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go build -trimpath -o dist/td.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/smoke-projects.py dist/td.exe

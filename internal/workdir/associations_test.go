@@ -8,9 +8,9 @@ import (
 )
 
 func TestLoadAssociations_MissingFile(t *testing.T) {
-	// Point HOME to a temp dir so ConfigDir returns an empty config
+	// Point the td profile to a temp dir so ConfigDir returns an empty config
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 
 	assoc, err := LoadAssociations()
 	if err != nil {
@@ -23,11 +23,11 @@ func TestLoadAssociations_MissingFile(t *testing.T) {
 
 func TestLoadSaveRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 
 	input := map[string]string{
-		"/Users/alice/code/repo-one":   "/Users/alice/notes/vault-one",
-		"/Users/alice/code/repo-two":   "/Users/alice/notes/vault-two",
+		"/Users/alice/code/repo-one": "/Users/alice/notes/vault-one",
+		"/Users/alice/code/repo-two": "/Users/alice/notes/vault-two",
 	}
 
 	if err := SaveAssociations(input); err != nil {
@@ -51,7 +51,7 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 
 func TestLookupAssociation(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 
 	// Create config dir and write associations
 	configDir := filepath.Join(tmp, ".config", "td")
@@ -85,7 +85,7 @@ func TestLookupAssociation(t *testing.T) {
 
 func TestResolveBaseDir_TdRootPriorityOverAssociation(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 
 	// Set up a directory with both .td-root and an association
 	projectDir := filepath.Join(tmp, "project")
@@ -123,7 +123,7 @@ func TestResolveBaseDir_TdRootPriorityOverAssociation(t *testing.T) {
 
 func TestResolveBaseDir_AssociationUsed(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	t.Setenv("TD_CONFIG_DIR", filepath.Join(tmp, ".config", "td"))
 
 	// Set up a directory with only an association (no .td-root, no .todos)
 	projectDir := filepath.Join(tmp, "project")

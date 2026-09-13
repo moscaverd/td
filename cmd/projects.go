@@ -3,6 +3,7 @@ package cmd
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/marcus/td/internal/registry"
 	"github.com/spf13/cobra"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var projectsCmd = &cobra.Command{
@@ -119,7 +120,17 @@ func runProjectsAggregate(cmd *cobra.Command, args []string) error {
 }
 
 func queryIssues(dbPath string, showAll bool) ([]issueRow, error) {
-	db, err := sql.Open("sqlite3", dbPath+"?mode=ro")
+	absolutePath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("path: %w", err)
+	}
+	uriPath := filepath.ToSlash(absolutePath)
+	if filepath.VolumeName(absolutePath) != "" && !strings.HasPrefix(uriPath, "/") {
+		// A Windows drive belongs in the URI path, not its authority.
+		uriPath = "/" + uriPath
+	}
+	dsn := &url.URL{Scheme: "file", Path: uriPath, RawQuery: "mode=ro"}
+	db, err := sql.Open("sqlite", dsn.String())
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
@@ -145,7 +156,7 @@ func queryIssues(dbPath string, showAll bool) ([]issueRow, error) {
 		}
 		issues = append(issues, iss)
 	}
-	return issues, nil
+	return issues, rows.Err()
 }
 
 func init() {
